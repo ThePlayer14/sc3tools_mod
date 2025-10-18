@@ -12,6 +12,7 @@ A CLI tool for extracting and modifying text in .scx and .msb scripts found in v
 - STEINS;GATE 0 (Steam)
 - CHAOS;CHILD Love Chu☆Chu!! (PS4 & Impacto)
 - ROBOTICS;NOTES DaSH
+- 11eyes CrossOver (Xbox 360)
 
 ## Usage
 
@@ -24,3 +25,6 @@ Here's an example of how you can extract text from the Robotics;Notes scripts:
 `./sc3tools extract-text C:/src/CoZ/rne-msb/*.msb rn`
 
 The output files will be placed in a subfolder named `txt` (in this case, `C:/src/CoZ/rne-msb/txt`).
+
+## Known issues
+* This tool currently does not handle color setting in dialogue correctly, and it will leave a truncated script if that is happened.
