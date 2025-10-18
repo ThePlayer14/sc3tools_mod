@@ -27,4 +27,10 @@ Here's an example of how you can extract text from the Robotics;Notes scripts:
 The output files will be placed in a subfolder named `txt` (in this case, `C:/src/CoZ/rne-msb/txt`).
 
 ## Known issues
-* This tool currently does not handle color setting in dialogue correctly, and it will leave a truncated script if that is happened.
+* This tool currently does not handle color setting in dialogue correctly (such as in the case of 11eyes CrossOver), and it will leave a truncated script if that is happened.
+
+  Example of the telltale sign:
+```
+  Processing "D:\\script\\SC000.scr"... 
+  Error: SC000.scr, line 73: expected more input.
+```
