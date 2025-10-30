@@ -26,6 +26,15 @@ Here's an example of how you can extract text from the Robotics;Notes scripts:
 
 The output files will be placed in a subfolder named `txt` (in this case, `C:/src/CoZ/rne-msb/txt`).
 
+## Compilation
+Install the Rust toolchain for Windows from [rustup.rs](https://rustup.rs).
+
+Clone the repository using Git: `git clone https://github.com/ThePlayer14/sc3tools_mod.git`
+
+Navigate to the cloned folder `sc3tools_mod` and open the context menu / righclick menu in File Explorer and click on "Open in Terminal"
+
+From this point you can run `cargo build` to build a "dev" (debug) release, or run `cargo build --release` to make a "release" build.
+ 
 ## Known issues
 * This tool currently does not handle color setting in dialogue correctly (such as in the case of 11eyes CrossOver), and it will leave a truncated script if that is happened.
 
