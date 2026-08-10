@@ -184,9 +184,18 @@ pub fn decode_str<'a>(
     gamedef: &'a GameDef,
     keep_fullwidth_chars: bool,
 ) -> Result<Text<'a>, EncodingError> {
+    decode_str_with_options(s, gamedef, keep_fullwidth_chars, false)
+}
+
+pub fn decode_str_with_options<'a>(
+    s: &[u16],
+    gamedef: &'a GameDef,
+    keep_fullwidth_chars: bool,
+    preserve_private_use: bool,
+) -> Result<Text<'a>, EncodingError> {
     let chars = s
         .iter()
-        .map(|code| decode_char(*code, gamedef.charset(), &gamedef.compound_chars))
+        .map(|code| decode_char_with_options(*code, gamedef.charset(), &gamedef.compound_chars, preserve_private_use))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Text::from_chars(chars.into_iter(), keep_fullwidth_chars))
 }
@@ -196,6 +205,15 @@ pub fn decode_char<'a>(
     charset: &[char],
     compound_map: &'a HashMap<char, String>,
 ) -> Result<Char<'a>, EncodingError> {
+    decode_char_with_options(code, charset, compound_map, false)
+}
+
+fn decode_char_with_options<'a>(
+    code: u16,
+    charset: &[char],
+    compound_map: &'a HashMap<char, String>,
+    preserve_private_use: bool,
+) -> Result<Char<'a>, EncodingError> {
     let i = (code & 0x7FFF) as usize;
     let ch = charset
         .get(i)
@@ -203,10 +221,14 @@ pub fn decode_char<'a>(
         .ok_or_else(|| EncodingError::IllegalCharCode(code))?;
     if let '\u{e000}'..='\u{f8ff}' = ch {
         // Private Use Area
-        compound_map
-            .get(&ch)
-            .map(|s| Char::Compound(s))
-            .ok_or_else(|| EncodingError::PuaCharNotMapped(code, ch))
+        if preserve_private_use {
+            Ok(Char::Regular(ch))
+        } else {
+            compound_map
+                .get(&ch)
+                .map(|s| Char::Compound(s))
+                .ok_or_else(|| EncodingError::PuaCharNotMapped(code, ch))
+        }
     } else {
         Ok(Char::Regular(ch))
     }

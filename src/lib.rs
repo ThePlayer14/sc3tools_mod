@@ -26,11 +26,29 @@ use std::{
     fs::{self, OpenOptions},
     io,
     io::{BufRead, BufReader, BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
-use std::{error::Error, fs::File, path::Path};
+use std::{error::Error, fs::File};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
+
+fn detect_external_resources() -> Option<PathBuf> {
+    let args: Vec<String> = std::env::args().collect();
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--resources-dir" {
+            if let Some(path) = args.get(i + 1) {
+                let pb = PathBuf::from(path);
+                if !pb.exists() {
+                    eprintln!("Warning: --resources-dir path does not exist: {:?}", pb);
+                }
+                return Some(pb);
+            } else {
+                eprintln!("Warning: --resources-dir requires a path argument");
+            }
+        }
+    }
+    None
+}
 
 #[derive(Debug)]
 enum ProcessingError {
@@ -43,10 +61,10 @@ enum ProcessingError {
 impl error::Error for ProcessingError {}
 
 pub fn run() -> Result<(), Box<dyn Error>> {
-    
-    let game_defs_file = gamedef::ResourceDir::get("gamedefs.json").unwrap();
-    let game_defs_json = std::str::from_utf8(game_defs_file.as_ref()).unwrap();
-    let defs = gamedef::build_gamedefs_from_json(game_defs_json);
+
+    let external_resources = detect_external_resources();
+    let game_defs_json = gamedef::load_gamedefs_json(external_resources.as_deref());
+    let defs = gamedef::build_gamedefs_from_json_with_base(&game_defs_json, external_resources.as_deref());
     let supported_games: Vec<String> = defs.iter()
         .flat_map(|v| v.aliases.iter().cloned()) // Clone the strings to own them
         .collect();
@@ -77,6 +95,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .author("Committee of Zero")
         .version("2.1")
         .after_help(&after_help)
+        .arg(
+            Arg::new("resources-dir")
+                .long("resources-dir")
+                .help("Path to external game resources directory (contains gamedefs.json and game subdirs)")
+                .required(false)
+                .global(true),
+        )
         .subcommand(
             Command::new("extract-text")
                 .about("Extracts text from one or multiple script files")
@@ -92,7 +117,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         .long("preserve-fullwidth")
                         .action(ArgAction::SetTrue)
                         .help("Preserve fullwidth characters")
+                        .required(false),
+                    Arg::new("mgs-format")
+                        .long("mgs-format")
+                        .action(ArgAction::SetTrue)
+                        .help("Output in MAGES-compatible raw byte format ([0x..] tags, raw compound chars, [0xFF] terminator)")
                         .required(false)
+                        .overrides_with("preserve-fullwidth"),
                 ]),
         )
         .subcommand(
@@ -125,7 +156,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             let game = sub_m.get_one::<String>("game").unwrap();
             let gamedef = gamedef::get_by_alias(&defs, game).unwrap();
             let keep_fullwidth_chars = sub_m.get_flag("preserve-fullwidth");
-            run_extract_text(parse_glob("input", input)?, gamedef, keep_fullwidth_chars)
+            let mgs_format = sub_m.get_flag("mgs-format");
+            run_extract_text(parse_glob("input", input)?, gamedef, keep_fullwidth_chars, mgs_format)
         }
         Some(("replace-text", sub_m)) => {
             let scripts = sub_m.get_one::<String>("scripts").unwrap();
@@ -148,6 +180,7 @@ fn run_extract_text(
     paths: Paths,
     gamedef: &GameDef,
     keep_fullwidth_chars: bool,
+    mgs_format: bool,
 ) -> Result<(), Box<dyn Error>> {
     Ok(for entry in paths {
         let path = entry?;
@@ -168,7 +201,7 @@ fn run_extract_text(
         println!("Processing {:?}...", path);
         let ext = ".".to_owned() + &path.extension().unwrap_or_default().to_str().unwrap() + ".txt";
         let output = out_dir.join(stem + &ext);
-        if let Err(err) = extract_text(&path, &output, gamedef, keep_fullwidth_chars) {
+        if let Err(err) = extract_text(&path, &output, gamedef, keep_fullwidth_chars, mgs_format) {
             report_err(err)
         }
     })
@@ -203,6 +236,7 @@ fn extract_text(
     out: &impl AsRef<Path>,
     gamedef: &GameDef,
     keep_fullwidth_chars: bool,
+    mgs_format: bool,
 ) -> Result<(), Box<dyn Error>> {
     let script = format::open(File::open(script_path)?)?;
     let txt = File::create(out)?;
@@ -211,11 +245,13 @@ fn extract_text(
     let table = &script.string_index();
     for (i, handle) in table.iter().enumerate() {
         let line = script.read_string(handle)?;
-        let serialized = line
-            .serialize(&gamedef, keep_fullwidth_chars)
-            .map_err(|err| {
-                ProcessingError::Script(script_path.as_ref().to_owned(), i, Box::new(err))
-            })?;
+        let serialized = if mgs_format {
+            line.serialize_mgs(&gamedef)
+                .map_err(|err| ProcessingError::Script(script_path.as_ref().to_owned(), i, Box::new(err)))?
+        } else {
+            line.serialize(&gamedef, keep_fullwidth_chars)
+                .map_err(|err| ProcessingError::Script(script_path.as_ref().to_owned(), i, Box::new(err)))?
+        };
         writeln!(writer, "{}", serialized)?;
     }
 

@@ -59,7 +59,7 @@ pub enum StringToken<'a> {
     NameStart,
     LineStart,
     Present(PresentAction),
-    Color(Expr<'a>),
+    Color(Cow<'a, [u8]>),
     RubyBaseStart,
     RubyTextStart,
     RubyTextEnd,
@@ -117,6 +117,21 @@ impl<'a> Expr<'a> {
     }
 }
 
+fn parse_color<'a>(i: &'a [u8]) -> IResult<&'a [u8], StringToken<'a>> {
+    let (i, first) = be_u8(i)?;
+    let (i, rest) = if first >= 0x80 {
+        let num_const_bytes = ((first & 0xE0).saturating_sub(0x80)) / 0x20 + 1;
+        let total_rest = num_const_bytes + 1;
+        take(total_rest as usize)(i)?
+    } else {
+        (i, &[] as &[u8])
+    };
+    let mut bytes = Vec::with_capacity(1 + rest.len());
+    bytes.push(first);
+    bytes.extend_from_slice(rest);
+    Ok((i, StringToken::Color(Cow::from(bytes))))
+}
+
 impl<'a> StringToken<'_> {
     pub fn decode(i: &[u8]) -> Result<(&[u8], StringToken), Error> {
         fn parse<'a, O, P, F>(i: &'a [u8], parser: P, f: F) -> Result<(&[u8], StringToken), Error>
@@ -146,7 +161,9 @@ impl<'a> StringToken<'_> {
             0x01 => Ok((i, StringToken::NameStart)),
             0x02 => Ok((i, StringToken::LineStart)),
             0x03 => Ok((i, StringToken::Present(PresentAction::None))),
-            0x04 => parse(i, Expr::parse, StringToken::Color),
+            0x04 => {
+                Ok(parse_color(i).map_err(|_| Error::ExpectedMoreInput)?)
+            }
             0x05 => Ok((i, StringToken::Present(PresentAction::Unknown_0x05))),
             0x08 => Ok((i, StringToken::Present(PresentAction::ResetAlignment))),
             0x09 => Ok((i, StringToken::RubyBaseStart)),
@@ -209,7 +226,7 @@ impl<'a> StringToken<'_> {
         sink.write(&code.to_be_bytes()).map(|_| ())?;
 
         match self {
-            StringToken::Color(expr) => sink.write(&expr.0),
+            StringToken::Color(bytes) => sink.write(&bytes),
             StringToken::FontSize(val) => sink.write(&val.to_be_bytes()),
             StringToken::MarginTop(val) => sink.write(&val.to_be_bytes()),
             StringToken::MarginLeft(val) => sink.write(&val.to_be_bytes()),
@@ -253,5 +270,41 @@ mod tests {
     fn parse_expr() {
         let expr = vec![0x29, 0x0A, 0xA0, 0x5A, 0x14, 0x14, 0x00, 0x80, 0x00, 0x00];
         assert_eq!(Expr::parse(&expr).unwrap().1, Expr(Cow::from(&expr)));
+    }
+
+    #[test]
+    fn parse_color_x360() {
+        let data = vec![0x04u8, 0x02];
+        let res = StringToken::decode(&data);
+        assert!(res.is_ok());
+        let (rem, tk) = res.unwrap();
+        assert_eq!(rem.len(), 0);
+        assert_eq!(tk, StringToken::Color(Cow::from(&[0x02u8][..])));
+    }
+
+    #[test]
+    fn parse_color_steam() {
+        let data = vec![0x04u8, 0x82, 0x00, 0x00];
+        let res = StringToken::decode(&data);
+        assert!(res.is_ok());
+        let (rem, tk) = res.unwrap();
+        assert_eq!(rem.len(), 0);
+        assert_eq!(tk, StringToken::Color(Cow::from(&[0x82u8, 0x00, 0x00][..])));
+    }
+
+    #[test]
+    fn color_roundtrip_x360() {
+        let orig = StringToken::Color(Cow::from(&[0x02u8][..]));
+        let mut buf = Vec::new();
+        orig.encode(&mut buf).unwrap();
+        assert_eq!(buf, vec![0x04, 0x02]);
+    }
+
+    #[test]
+    fn color_roundtrip_steam() {
+        let orig = StringToken::Color(Cow::from(&[0x82u8, 0x00, 0x00][..]));
+        let mut buf = Vec::new();
+        orig.encode(&mut buf).unwrap();
+        assert_eq!(buf, vec![0x04, 0x82, 0x00, 0x00]);
     }
 }

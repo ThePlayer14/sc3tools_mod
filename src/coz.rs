@@ -90,6 +90,62 @@ impl<'a> Sc3String<'_> {
         Ok(CozString(Cow::from(buf)))
     }
 
+    pub fn serialize_mgs(&self, gamedef: &GameDef) -> Result<CozString, Error> {
+        fn hex2(val: u16) -> String {
+            format!("{:02X}{:02X}", (val >> 8) as u8, val as u8)
+        }
+
+        let mut buf = String::new();
+        for tk in self.iter() {
+            let tk = tk?;
+            match tk {
+                sc3::StringToken::Text(encoded_text) => {
+                    let s = text::decode_str_with_options(&encoded_text, &gamedef, true, true)?;
+                    write!(buf, "{}", s.as_str()).unwrap();
+                }
+                sc3::StringToken::LineBreak => write!(buf, "[0x00]").unwrap(),
+                sc3::StringToken::NameStart => write!(buf, ":[").unwrap(),
+                sc3::StringToken::LineStart => write!(buf, "]:").unwrap(),
+                sc3::StringToken::Present(action) => match action {
+                    sc3::PresentAction::None => write!(buf, "[0x03]").unwrap(),
+                    sc3::PresentAction::ResetAlignment => write!(buf, "[0x08]").unwrap(),
+                    sc3::PresentAction::Unknown_0x05 => write!(buf, "[0x05]").unwrap(),
+                    sc3::PresentAction::Unknown_0x18 => write!(buf, "[0x18]").unwrap(),
+                },
+                sc3::StringToken::Color(color_value) => {
+                    write!(buf, "[0x04").unwrap();
+                    for b in color_value.iter() {
+                        write!(buf, "{:02X}", b).unwrap();
+                    }
+                    write!(buf, "]").unwrap();
+                }
+                sc3::StringToken::RubyBaseStart => write!(buf, "[0x09]").unwrap(),
+                sc3::StringToken::RubyTextStart => write!(buf, "[0x0A]").unwrap(),
+                sc3::StringToken::RubyTextEnd => write!(buf, "[0x0B]").unwrap(),
+                sc3::StringToken::FontSize(val) => write!(buf, "[0x0C{}]", hex2(val)).unwrap(),
+                sc3::StringToken::Parallel => write!(buf, "[0x0E]").unwrap(),
+                sc3::StringToken::Center => write!(buf, "[0x0F]").unwrap(),
+                sc3::StringToken::MarginTop(val) => write!(buf, "[0x11{}]", hex2(val)).unwrap(),
+                sc3::StringToken::MarginLeft(val) => write!(buf, "[0x12{}]", hex2(val)).unwrap(),
+                sc3::StringToken::HardcodedValue(val) => write!(buf, "[0x13{}]", hex2(val)).unwrap(),
+                sc3::StringToken::Eval(expr) => {
+                    write!(buf, "[0x15").unwrap();
+                    for b in expr.0.iter() {
+                        write!(buf, "{:02X}", b).unwrap();
+                    }
+                    write!(buf, "]").unwrap();
+                }
+                sc3::StringToken::AutoForward => write!(buf, "[0x19]").unwrap(),
+                sc3::StringToken::AutoForward_1A => write!(buf, "[0x1A]").unwrap(),
+                sc3::StringToken::RubyCenterPerChar => write!(buf, "[0x1E]").unwrap(),
+                sc3::StringToken::AltLineBreak => write!(buf, "[0x1F]").unwrap(),
+                sc3::StringToken::Terminator => {}
+            }
+        }
+        write!(buf, "[0xFF]").unwrap();
+        Ok(CozString(Cow::from(buf)))
+    }
+
     pub fn deserialize(
         s: &'a CozString,
         gamedef: &GameDef,
@@ -221,7 +277,7 @@ impl<'a> StringToken<'a> {
             StringToken::MarginLeft(val) => ("margin", Some(("left", val.to_string()))),
             StringToken::MarginTop(val) => ("margin", Some(("top", val.to_string()))),
             StringToken::Terminator => ("", None),
-            StringToken::Color(expr) => ("color", Some(("index", hex::encode_upper(&expr.0)))),
+            StringToken::Color(color_value) => ("color", Some(("index", hex::encode_upper(&color_value)))),
             StringToken::FontSize(val) => ("font", Some(("size", val.to_string()))),
             StringToken::HardcodedValue(val) => {
                 ("hardcoded-value", Some(("index", val.to_string())))
@@ -261,7 +317,7 @@ impl<'a> StringToken<'a> {
             "%e" => Ok(StringToken::Present(sc3::PresentAction::ResetAlignment)),
             "%05" => Ok(StringToken::Present(sc3::PresentAction::Unknown_0x05)),
             "%18" => Ok(StringToken::Present(sc3::PresentAction::Unknown_0x18)),
-            "color" => Self::expr_attr(tag.attr.as_ref(), "index").map(StringToken::Color),
+            "color" => Self::bytes_attr(tag.attr.as_ref(), "index").map(StringToken::Color),
             "ruby-base" | "rubybase" => Ok(StringToken::RubyBaseStart),
             "ruby-text-start" | "rubytextstart" => Ok(StringToken::RubyTextStart),
             "ruby-text-end" | "rubytextend" => Ok(StringToken::RubyTextEnd),
@@ -336,6 +392,20 @@ impl<'a> StringToken<'a> {
         }
 
         Self::get_attr(attr, name, expr)
+    }
+
+    fn bytes_attr(
+        attr: Option<&Attr<'a>>,
+        name: &'a str,
+    ) -> Result<Cow<'a, [u8]>, ParseError> {
+        fn hex_string(value: &str) -> IResult<&str, Vec<u8>> {
+            many1(map_res(
+                take_while_m_n(2, 2, |c: char| c.is_digit(16)),
+                |hex| u8::from_str_radix(hex, 16),
+            ))(value)
+        }
+
+        Self::get_attr(attr, name, hex_string).map(Cow::from)
     }
 }
 

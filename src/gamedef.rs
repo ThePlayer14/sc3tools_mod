@@ -9,13 +9,27 @@ use nom::{
     IResult,
 };
 use rust_embed::RustEmbed;
-use std::{borrow::Cow, collections::HashMap, ops::RangeInclusive};
+use std::{borrow::Cow, collections::HashMap, ops::RangeInclusive, path::Path};
 use serde::Deserialize;
 use serde_json;
 
 #[derive(RustEmbed)]
 #[folder = "resources/"]
 pub struct ResourceDir;
+
+fn load_resource(base_path: Option<&Path>, resource_dir: &str, file_name: &str) -> Cow<'static, [u8]> {
+    if let Some(base) = base_path {
+        let path = base.join(resource_dir).join(file_name);
+        if path.exists() {
+            return Cow::Owned(std::fs::read(&path).unwrap_or_else(|e| {
+                panic!("Failed to read resource file {:?}: {}", path, e)
+            }));
+        }
+    }
+    let embedded_path = format!("{}/{}", resource_dir, file_name);
+    ResourceDir::get(&embedded_path)
+        .unwrap_or_else(|| panic!("Resource not found: {} (also checked external path: {:?})", embedded_path, base_path))
+}
 
 pub struct GameDef {
     #[allow(dead_code)]
@@ -47,6 +61,7 @@ impl<'a> From<GameDefJson<'a>> for GameDef {
             json.aliases,
             json.reserved_codepoints,
             json.fullwidth_blocklist,
+            None,
         )
     }
 }
@@ -58,19 +73,16 @@ impl GameDef {
         aliases: Vec<String>,
         reserved_codepoints: Option<RangeInclusive<char>>,
         fullwidth_blocklist: Vec<char>,
+        external_base: Option<&Path>,
     ) -> Self {
-        fn file_path(resource_dir: &str, name: &'static str) -> String {
-            format!("{}/{}", resource_dir, name)
-        }
-
         let charset: Cow<[u8]> =
-            ResourceDir::get(&file_path(resource_dir, "charset.utf8")).unwrap();
+            load_resource(external_base, resource_dir, "charset.utf8");
         let charset: Vec<char> = std::str::from_utf8(charset.as_ref())
             .unwrap()
             .chars()
             .collect();
         let compound_chars: Cow<[u8]> =
-            ResourceDir::get(&file_path(resource_dir, "compound_chars.map")).unwrap();
+            load_resource(external_base, resource_dir, "compound_chars.map");
         let compound_chars = std::str::from_utf8(compound_chars.as_ref()).unwrap();
         let compound_chars = parse_compound_ch_map(compound_chars);
         let encoding_maps = EncodingMaps::new(&charset, &compound_chars);
@@ -98,6 +110,17 @@ impl GameDef {
         }
     }
 
+    pub fn from_with_base(json: GameDefJson<'_>, external_base: Option<&Path>) -> Self {
+        Self::new(
+            json.name,
+            json.resource_dir,
+            json.aliases,
+            json.reserved_codepoints,
+            json.fullwidth_blocklist,
+            external_base,
+        )
+    }
+
     pub fn charset(&self) -> &[char] {
         &self.charset
     }
@@ -111,6 +134,24 @@ pub fn get_by_alias<'a>(defs: &'a [GameDef], alias: &str) -> Option<&'a GameDef>
 pub fn build_gamedefs_from_json(json: &str) -> Vec<GameDef> {
     let defs: Vec<GameDefJson> = serde_json::from_str(json).unwrap();
     defs.into_iter().map(GameDef::from).collect()
+}
+
+pub fn build_gamedefs_from_json_with_base(json: &str, external_base: Option<&Path>) -> Vec<GameDef> {
+    let defs: Vec<GameDefJson> = serde_json::from_str(json).unwrap();
+    defs.into_iter().map(|d| GameDef::from_with_base(d, external_base)).collect()
+}
+
+pub fn load_gamedefs_json(external_base: Option<&Path>) -> String {
+    match external_base {
+        Some(base) => std::fs::read_to_string(base.join("gamedefs.json"))
+            .unwrap_or_else(|e| panic!("Failed to read gamedefs.json from {:?}: {}", base, e)),
+        None => {
+            let file = ResourceDir::get("gamedefs.json")
+                .expect("Embedded gamedefs.json not found");
+            String::from_utf8(file.to_vec())
+                .expect("gamedefs.json is not valid UTF-8")
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Debug)]
