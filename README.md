@@ -16,7 +16,7 @@ A CLI tool for extracting and modifying text in .scx and .msb scripts found in v
 
 ## Usage
 
-Run `./sc3tools` with no arguments to see the list of the avaliable commands, as well as the list of the supported games and their aliases (such as `sg0` for Steins;Gate 0).
+Run `./sc3tools` with no arguments to see the list of the available commands, as well as the list of the supported games and their aliases (such as `sg0` for Steins;Gate 0).
 
 Run `./sc3tools help <command>` to see the help message for a specific command.
 
@@ -31,15 +31,16 @@ Install the Rust toolchain for Windows from [rustup.rs](https://rustup.rs).
 
 Clone the repository using Git: `git clone https://github.com/ThePlayer14/sc3tools_mod.git`
 
-Navigate to the cloned folder `sc3tools_mod` and open the context menu / righclick menu in File Explorer and click on "Open in Terminal"
+Navigate to the cloned folder `sc3tools_mod` and open the context menu / rightclick menu in File Explorer and click on "Open in Terminal"
 
 From this point you can run `cargo build` to build a "dev" (debug) release, or run `cargo build --release` to make a "release" build.
  
 ## Known issues
-* This tool currently does not handle color setting in dialogue correctly (such as in the case of 11eyes CrossOver), and it will leave a truncated script if that is happened.
+- This tool originally couldn't handle color setting in dialogue correctly (such as in the case of 11eyes CrossOver), and it will leave a truncated script if that is happened.
 
   Example of the telltale sign:
 ```
   Processing "D:\\script\\SC000.scr"... 
   Error: SC000.scr, line 73: expected more input.
 ```
+- With the release in the Releases tab, this is no longer the case. You can also build a functioning program for other platforms from the code.
