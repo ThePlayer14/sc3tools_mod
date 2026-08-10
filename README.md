@@ -44,3 +44,4 @@ From this point you can run `cargo build` to build a "dev" (debug) release, or r
   Error: SC000.scr, line 73: expected more input.
 ```
 - With the release in the Releases tab, this is no longer the case. You can also build a functioning program for other platforms from the code.
+- For details of the fix, see [The bugfix report.](https://github.com/ThePlayer14/sc3tools_mod/blob/main/rust-bugfix.md)
